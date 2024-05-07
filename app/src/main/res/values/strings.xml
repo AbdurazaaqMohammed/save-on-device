@@ -5,4 +5,7 @@
     <string name="multiSaveInfo">If this is enabled, when you share multiple files to the app, it will bring up a dialog for each file allowing you to rename it and select the folder to save it in. Otherwise, you will simply choose a folder to save the files in, and they will all be saved there automatically.</string>
     <string name="oldAndroidInfo">Unfortunately, the version of Android on your device does not support the method used to save all files as once. You will be forced to use this mode.</string>
     <string name="switchText">Save multiple files individually</string>
+    <string name="very_old_android_info">Your Android version is so old that it doesn\'t support the dialog used to select where to save the file. You can enter the path to a folder in the box below, and all the files will be saved there.</string>
+    <string name="directory_to_save_files">Directory to save files</string>
+    <string name="save_dir_setting">Save</string>
 </resources>
