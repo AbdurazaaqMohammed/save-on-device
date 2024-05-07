@@ -33,6 +33,7 @@ android:orientation="vertical">
             android:text="@string/switchText"
             android:textColor="#00BCD4"
             android:textSize="18sp" />
+
         <TextView
             android:id="@+id/multiSaveInfo"
             android:layout_width="wrap_content"
@@ -41,6 +42,7 @@ android:orientation="vertical">
             android:text="@string/multiSaveInfo"
             android:textSize="18sp"
             android:textColor="#2196F3" />
+
         <TextView
             android:id="@+id/oldAndroidInfo"
             android:layout_width="wrap_content"
@@ -50,6 +52,43 @@ android:orientation="vertical">
             android:textSize="18sp"
             android:textColor="#2196F3"
             android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/veryOldAndroidInfo"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:textColor="#673AB7"
+            android:text="@string/very_old_android_info"
+            android:visibility="gone"/>
+
+        <EditText
+            android:id="@+id/directorySaveFiles"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/directory_to_save_files"
+            android:importantForAutofill="no"
+            android:inputType="textNoSuggestions"
+            android:minHeight="48dp"
+            android:textColor="#673AB7"
+            android:textColorHint="#673AB7"
+            android:visibility="gone"/>
+
+        <Button
+            android:id="@+id/saveDirectorySetting"
+            android:layout_width="fill_parent"
+            android:layout_height="0dp"
+            android:text="@string/save_dir_setting"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/errorField"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="20sp"
+            android:textColor="#673AB7"
+            android:textIsSelectable="true"
+            android:visibility="gone"/>
+
     </LinearLayout>
 </LinearLayout>
 </LinearLayout>
