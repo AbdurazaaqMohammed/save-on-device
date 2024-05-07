@@ -11,6 +11,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
@@ -27,6 +28,7 @@ import android.os.Build;
 import java.io.FileInputStream;
 import java.io.IOException;
 */
+import java.io.File;
 import java.io.FileOutputStream;
 
 import java.io.IOException;
@@ -43,8 +45,7 @@ public class MainActivity extends Activity {
     private ArrayList<Uri> inputUris;
     private int currentFileIndex = 0;
     private boolean saveIndividually;
-
-    private final static boolean isVeryOldAndroid = Build.VERSION.SDK_INT<19;
+    private final static boolean supportsFilePicker = Build.VERSION.SDK_INT>18;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -76,23 +77,24 @@ public class MainActivity extends Activity {
             setContentView(R.layout.activity_main);
             Switch mySwitch = findViewById(R.id.multiSaveSwitch);
             if(Build.VERSION.SDK_INT<21) {
-                mySwitch.setChecked(true);
-                mySwitch.setEnabled(false);
-                findViewById(R.id.oldAndroidInfo).setVisibility(View.VISIBLE);
-                if(isVeryOldAndroid) {
+                if(supportsFilePicker) {
+                    mySwitch.setChecked(true);
+                    mySwitch.setEnabled(false);
+                    findViewById(R.id.oldAndroidInfo).setVisibility(View.VISIBLE);
+                } else {
                     findViewById(R.id.veryOldAndroidInfo).setVisibility(View.VISIBLE);
                     EditText outputDirectoryField = findViewById(R.id.directorySaveFiles);
                     outputDirectoryField.setVisibility(View.VISIBLE);
-                    outputDirectoryField.setText(settings.getString("directoryToSaveFiles", "/sdcard/Download"));
+                    outputDirectoryField.setText(settings.getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download"));
                     Button b = findViewById(R.id.saveDirectorySetting);
                     b.setVisibility(View.VISIBLE);
                     b.setOnClickListener(v -> settings.edit().putString("directoryToSaveFiles", outputDirectoryField.getText().toString()).apply());
                 }
             } else {
+                if(Build.VERSION.SDK_INT>22 && Build.VERSION.SDK_INT<29) requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
                 mySwitch.setChecked(saveIndividually);
                 mySwitch.setOnCheckedChangeListener((buttonView, isChecked) -> settings.edit().putBoolean("saveIndividually", isChecked).apply());
             }
-            if(Build.VERSION.SDK_INT>22 && Build.VERSION.SDK_INT<29) requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
         }
     }
 
@@ -109,10 +111,12 @@ public class MainActivity extends Activity {
     }
 
     private void showError(String error) {
-        TextView errorBox = findViewById(R.id.errorField);
-        errorBox.setVisibility(View.VISIBLE);
-        errorBox.setText(error);
-        Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
+        runOnUiThread(() -> {
+            TextView errorBox = findViewById(R.id.errorField);
+            errorBox.setVisibility(View.VISIBLE);
+            errorBox.setText(error);
+            Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
+        });
     }
 
     private String getMimeType(Uri uri) {
@@ -136,12 +140,9 @@ public class MainActivity extends Activity {
         }
         return true;
     }
-    
+
     private void callSaveFileResultLauncherForIndividual(Uri inputUri, int code) {
-        if(isVeryOldAndroid) {
-            Uri outputUri = Uri.parse(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", "/sdcard/Download") + getOriginalFileName(this, inputUri));
-            new SaveFileAsyncTask(this).execute(inputUri, outputUri);
-        } else {
+        if (supportsFilePicker) {
             final String mimeType = getMimeType(inputUri);
 
             if (mimeType.isEmpty()) {
@@ -154,14 +155,23 @@ public class MainActivity extends Activity {
                 saveFileIntent.putExtra(Intent.EXTRA_TITLE, getOriginalFileName(this, inputUri));
                 startActivityForResult(saveFileIntent, code);
             }
+        } else {
+            Uri outputUri = Uri.parse(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + getOriginalFileName(this, inputUri));
+            new SaveFileAsyncTask(this).execute(inputUri, outputUri);
         }
     }
     private void callSaveFileResultLauncherForPlainTextData(String text) {
         if (text != null) {
             String fileName = slugify(text.substring(0, Math.min(text.length(), 20))) + ".txt";
-            if(isVeryOldAndroid) {
+            if(supportsFilePicker) {
+                Intent saveFileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                saveFileIntent.addCategory(Intent.CATEGORY_OPENABLE);
+                saveFileIntent.setType("text/plain");
+                saveFileIntent.putExtra(Intent.EXTRA_TITLE, fileName);
+                startActivityForResult(saveFileIntent, SAVE_FILE_REQUEST_CODE);
+            } else {
                 try {
-                    OutputStream outputStream = new FileOutputStream(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", "/sdcard/Download") + fileName);
+                    OutputStream outputStream = new FileOutputStream(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + fileName);
                     outputStream.write(text.getBytes());
                     outputStream.flush();
                     outputStream.close();
@@ -170,11 +180,6 @@ public class MainActivity extends Activity {
                     showError(e.toString());
                 }
             }
-            Intent saveFileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            saveFileIntent.addCategory(Intent.CATEGORY_OPENABLE);
-            saveFileIntent.setType("text/plain");
-            saveFileIntent.putExtra(Intent.EXTRA_TITLE, fileName);
-            startActivityForResult(saveFileIntent, SAVE_FILE_REQUEST_CODE);
         } else {
             Toast.makeText(getApplicationContext(), getString(R.string.unsupported_mimetype), Toast.LENGTH_LONG).show();
             finish();
@@ -219,7 +224,7 @@ public class MainActivity extends Activity {
                     case SAVE_FILE_REQUEST_CODE:
                         new SaveFileAsyncTask(this).execute(inputUri, outputUri);
                         finish();
-                    break;
+                        break;
                     case SAVE_FILES_REQUEST_CODE:
                         if(saveIndividually) {
                             new SaveFileAsyncTask(this).execute(inputUri, outputUri);
@@ -235,10 +240,16 @@ public class MainActivity extends Activity {
                             new SaveMultipleFilesAsyncTask(this).execute(outputUri);
                             finish();
                         }
-                    break;
+                        break;
                 }
             }
         }
+    }
+
+    @Override
+    public void finish() {
+        Toast.makeText(this, getString(R.string.success), Toast.LENGTH_SHORT).show();
+        super.finish();
     }
 
     private static class SaveMultipleFilesAsyncTask extends AsyncTask<Uri, Void, Void> {
