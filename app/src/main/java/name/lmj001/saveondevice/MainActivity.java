@@ -158,9 +158,54 @@ public class MainActivity extends Activity {
             }
         } else {
             Uri outputUri = Uri.fromFile(new File(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + getOriginalFileName(this, inputUri)));
-            new SaveFileAsyncTask(this).execute(inputUri, outputUri);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE) {
+                new SaveFileAsyncTask(this).execute(inputUri, outputUri);
+            } else {
+                saveFile(inputUri, outputUri);
+            }
         }
     }
+
+    private void saveFile(Uri inputUri, Uri outputUri) {
+        InputStream inputStream = null;
+        OutputStream outputStream = null;
+        try {
+            outputStream = getContentResolver().openOutputStream(outputUri);
+            if (inputUri != null) {
+                inputStream = getContentResolver().openInputStream(inputUri);
+                if (inputStream != null) {
+                    byte[] buffer = new byte[4096];
+                    int length;
+                    while ((length = inputStream.read(buffer)) > 0) {
+                        outputStream.write(buffer, 0, length);
+                    }
+                }
+            } else {
+                // If the input URI is null, write the text from the intent directly to the output stream
+                String text = getIntent().getStringExtra(Intent.EXTRA_TEXT);
+                if (text == null) {
+                    showError(getString(R.string.nothing));
+                } else {
+                    outputStream.write(text.getBytes());
+                }
+            }
+            outputStream.flush();
+        } catch (Exception e) {
+            showError(e.toString());
+        } finally {
+            try {
+                if (inputStream != null) {
+                    inputStream.close();
+                }
+                if (outputStream != null) {
+                    outputStream.close();
+                }
+            } catch (Exception e) {
+                showError(e.toString());
+            }
+        }
+    }
+
     private void callSaveFileResultLauncherForPlainTextData(String text) {
         if (text != null) {
             String fileName = slugify(text.substring(0, Math.min(text.length(), 20))) + ".txt";
@@ -239,12 +284,20 @@ public class MainActivity extends Activity {
             if (outputUri != null) {
                 switch (requestCode) {
                     case SAVE_FILE_REQUEST_CODE:
-                        new SaveFileAsyncTask(this).execute(inputUri, outputUri);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE) {
+                            new SaveFileAsyncTask(this).execute(inputUri, outputUri);
+                        } else {
+                            saveFile(inputUri, outputUri);
+                        }
                         finish();
                         break;
                     case SAVE_FILES_REQUEST_CODE:
-                        if(saveIndividually) {
-                            new SaveFileAsyncTask(this).execute(inputUri, outputUri);
+                        if(saveIndividually || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE) {
+                                new SaveFileAsyncTask(this).execute(inputUri, outputUri);
+                            } else {
+                                saveFile(inputUri, outputUri);
+                            }
                             // If there are more input URIs to process, save the next file; otherwise, finish the activity
                             if (inputUris != null && currentFileIndex < inputUris.size() - 1) {
                                 currentFileIndex++;
@@ -269,6 +322,7 @@ public class MainActivity extends Activity {
         super.finish();
     }
 
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private static class SaveMultipleFilesAsyncTask extends AsyncTask<Uri, Void, Void> {
         private final WeakReference<MainActivity> activityReference;
         // only retain a weak reference to the activity
@@ -307,6 +361,7 @@ public class MainActivity extends Activity {
         }
     }
 
+    @TargetApi(Build.VERSION_CODES.CUPCAKE)
     private static class SaveFileAsyncTask extends AsyncTask<Uri, Void, Void> {
         private final WeakReference<MainActivity> activityReference;
         // only retain a weak reference to the activity
@@ -318,43 +373,7 @@ public class MainActivity extends Activity {
         @Override
         protected Void doInBackground(Uri... uris) {
             MainActivity activity = activityReference.get();
-            InputStream inputStream = null;
-            OutputStream outputStream = null;
-            try {
-                outputStream =  (FileOutputStream) (activity.getContentResolver().openOutputStream(uris[1]));
-                    if (uris[0] != null) {
-                        inputStream = activity.getContentResolver().openInputStream(uris[0]);
-                        if (inputStream != null) {
-                            byte[] buffer = new byte[4096];
-                            int length;
-                            while ((length = inputStream.read(buffer)) > 0) {
-                                outputStream.write(buffer, 0, length);
-                            }
-                        }
-                    } else {
-                        // If the input URI is null, write the text from the intent directly to the output stream
-                        String text = activity.getIntent().getStringExtra(Intent.EXTRA_TEXT);
-                        if (text == null) {
-                            activity.showError(activity.getString(R.string.nothing));
-                        } else {
-                            outputStream.write(text.getBytes());
-                        }
-                    }
-                    outputStream.flush();
-            } catch (Exception e) {
-                activity.showError(e.toString());
-            } finally {
-                try {
-                    if (inputStream != null) {
-                        inputStream.close();
-                    }
-                    if (outputStream != null) {
-                        outputStream.close();
-                    }
-                } catch (Exception e) {
-                    activity.showError(e.toString());
-                }
-            }
+            activity.saveFile(uris[0], uris[1]);
             return null;
         }
     }
