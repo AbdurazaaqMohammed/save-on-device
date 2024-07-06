@@ -25,8 +25,6 @@ import android.widget.Toast;
 import android.widget.ToggleButton;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
@@ -41,9 +39,9 @@ public class MainActivity extends Activity {
     private static Uri inputUri;
     private static ArrayList<Uri> inputUris;
     private static int currentFileIndex = 0;
+    private static String sharedText;
     private static boolean saveIndividually;
     private final static boolean supportsBuiltInAndroidFilePicker = Build.VERSION.SDK_INT>18;
-    private final static boolean supportsAsyncTask = Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,11 +56,11 @@ public class MainActivity extends Activity {
         if (Intent.ACTION_SEND.equals(action)) {
             if (intent.hasExtra(Intent.EXTRA_STREAM)) {
                 inputUri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-                callSaveFileResultLauncherForIndividual(inputUri, SAVE_FILE_REQUEST_CODE);
+                callSaveFileResultLauncherForIndividual(SAVE_FILE_REQUEST_CODE);
             } else if (intent.hasExtra(Intent.EXTRA_TEXT)) {
-                String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-                if (text != null) {
-                    String fileName = text.substring(0, Math.min(text.length(), 20));
+                sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
+                if (sharedText != null) {
+                    String fileName = sharedText.substring(0, Math.min(sharedText.length(), 20));
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
                         fileName = Normalizer.normalize(fileName, Normalizer.Form.NFD)
                                 .replaceAll("[^\\p{ASCII}]", "")
@@ -89,15 +87,7 @@ public class MainActivity extends Activity {
                         saveFileIntent.putExtra(Intent.EXTRA_TITLE, fileName);
                         startActivityForResult(saveFileIntent, SAVE_FILE_REQUEST_CODE);
                     } else {
-                        // just write it here
-                        try (OutputStream outputStream = new FileOutputStream(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + fileName)){
-
-                            outputStream.write(text.getBytes());
-                            outputStream.flush();
-                            finish();
-                        } catch (IOException e) {
-                            showError(e.toString());
-                        }
+                        saveFile(null, Uri.fromFile(new File(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + fileName)));
                     }
                 } else {
                     Toast.makeText(getApplicationContext(), R.string.nothing, Toast.LENGTH_LONG).show();
@@ -109,9 +99,8 @@ public class MainActivity extends Activity {
                 inputUris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
                 if (saveIndividually || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
                     inputUri = inputUris.get(currentFileIndex);
-                    callSaveFileResultLauncherForIndividual(inputUri, SAVE_FILES_REQUEST_CODE);
-                }
-                else {
+                    callSaveFileResultLauncherForIndividual(SAVE_FILES_REQUEST_CODE);
+                } else {
                     // I don't know a way to fix the MIME type for this.
                     for (Uri uri : inputUris) {
                         final String mimeType = getApplicationContext().getContentResolver().getType(uri);
@@ -172,7 +161,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void callSaveFileResultLauncherForIndividual(Uri inputUri, int code) {
+    private void callSaveFileResultLauncherForIndividual(int code) {
         if (supportsBuiltInAndroidFilePicker) {
             String mimeType = getApplicationContext().getContentResolver().getType(inputUri);
             // It seems like some apps send the file with no MIME type on older Android versions. Possibly on newer versions the MIME type gets automatically set
@@ -187,7 +176,7 @@ public class MainActivity extends Activity {
                 String fileExtension = getOriginalFileName(this, inputUri);
                 fileExtension = fileExtension.substring(fileExtension.lastIndexOf('.') + 1).trim();
                 mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(fileExtension.toLowerCase());
-                if (mimeType==null || mimeType.isEmpty()) mimeType = "application/octet-stream";
+                if (mimeType==null || mimeType.isEmpty()) mimeType = "application/octet-stream"; // Generic MIME type
             }
 
             Intent saveFileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -197,7 +186,7 @@ public class MainActivity extends Activity {
             startActivityForResult(saveFileIntent, code);
         } else {
             Uri outputUri = Uri.fromFile(new File(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + getOriginalFileName(this, inputUri)));
-            if (supportsAsyncTask) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE) {
                 new SaveFileTask(this).execute(inputUri, outputUri);
             } else {
                 saveFile(inputUri, outputUri);
@@ -206,14 +195,20 @@ public class MainActivity extends Activity {
     }
 
     private void saveFile(Uri inputUri, Uri outputUri) {
-        try (OutputStream outputStream = getContentResolver().openOutputStream(outputUri);
-              InputStream inputStream = getContentResolver().openInputStream(inputUri)) {
-            if (inputStream != null) {
-                byte[] buffer = new byte[4096];
-                int length;
-                while ((length = inputStream.read(buffer)) > 0) {
-                    outputStream.write(buffer, 0, length);
-                }
+        try (OutputStream outputStream = getContentResolver().openOutputStream(outputUri)) {
+            if (inputUri == null) {
+                // If the input URI is null, write the text from the intent directly to the output stream
+                outputStream.write(sharedText.getBytes());
+            } else {
+                try (InputStream inputStream = getContentResolver().openInputStream(inputUri)) {
+                    if (inputStream != null) {
+                        byte[] buffer = new byte[4096];
+                        int length;
+                        while ((length = inputStream.read(buffer)) > 0) {
+                            outputStream.write(buffer, 0, length);
+                        }
+                    }
+                } 
             }
         } catch (Exception e) {
             showError(e.toString());
@@ -232,12 +227,12 @@ public class MainActivity extends Activity {
             }
             if (result == null) {
                 result = uri.getPath();
-                int cut = result.lastIndexOf('/');
+                int cut = Objects.requireNonNull(result).lastIndexOf('/'); // Ensure it throw the NullPointerException here to be caught
                 if (cut != -1) {
                     result = result.substring(cut + 1);
                 }
             }
-        } catch (Exception ignored) {
+        } catch (NullPointerException ignored) {
             result = "filename_not_found";
         }
         return result;
@@ -273,7 +268,7 @@ public class MainActivity extends Activity {
                 if (inputUris != null && currentFileIndex < inputUris.size() - 1) {
                     currentFileIndex++;
                     inputUri = inputUris.get(currentFileIndex);
-                    activity.callSaveFileResultLauncherForIndividual(inputUri, SAVE_FILES_REQUEST_CODE);
+                    activity.callSaveFileResultLauncherForIndividual(SAVE_FILES_REQUEST_CODE);
                 }
             } else {
                 final Uri treeUri = uris[1];
