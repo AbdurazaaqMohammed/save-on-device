@@ -3,6 +3,7 @@ package name.lmj001.saveondevice;
 import android.Manifest;
 import android.annotation.TargetApi;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -20,7 +21,6 @@ import android.view.View;
 import android.webkit.MimeTypeMap;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
@@ -33,14 +33,16 @@ import java.lang.ref.WeakReference;
 import java.text.Normalizer;
 import java.util.ArrayList;
 
+/** @noinspection deprecation*/
 public class MainActivity extends Activity {
     private static final int SAVE_FILE_REQUEST_CODE = 1;
     private static final int SAVE_FILES_REQUEST_CODE = 2;
-    private Uri inputUri;
-    private ArrayList<Uri> inputUris;
-    private int currentFileIndex = 0;
+    private static Uri inputUri;
+    private static ArrayList<Uri> inputUris;
+    private static int currentFileIndex = 0;
     private static boolean saveIndividually;
     private final static boolean supportsBuiltInAndroidFilePicker = Build.VERSION.SDK_INT>18;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -57,16 +59,68 @@ public class MainActivity extends Activity {
                 callSaveFileResultLauncherForIndividual(inputUri, SAVE_FILE_REQUEST_CODE);
             } else if (intent.hasExtra(Intent.EXTRA_TEXT)) {
                 String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-                callSaveFileResultLauncherForPlainTextData(text);
+                if (text != null) {
+                    String fileName;
+                    String word = text.substring(0, Math.min(text.length(), 20));
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
+                        fileName = Normalizer.normalize(word, Normalizer.Form.NFD)
+                                .replaceAll("[^\\p{ASCII}]", "")
+                                .replaceAll("[^a-zA-Z0-9\\s]+", "").trim()
+                                .replaceAll("\\s+", "-")
+                                .toLowerCase();
+                    } else {
+                        StringBuilder sb = new StringBuilder();
+                        for (char c : word.toCharArray()) {
+                            if ((int) c <= 127) {
+                                sb.append(c);
+                            }
+                        }
+                        fileName = sb.toString().replaceAll("[^a-zA-Z0-9\\s]", "")
+                                .trim()
+                                .replaceAll("\\s+", "-")
+                                .toLowerCase();
+                    }
+                    if(supportsBuiltInAndroidFilePicker) {
+                        Intent saveFileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                        saveFileIntent.addCategory(Intent.CATEGORY_OPENABLE);
+                        saveFileIntent.setType("text/plain");
+                        saveFileIntent.putExtra(Intent.EXTRA_TITLE, fileName);
+                        startActivityForResult(saveFileIntent, SAVE_FILE_REQUEST_CODE);
+                    } else {
+                        // just write it here
+                        try (OutputStream outputStream = new FileOutputStream(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + fileName)){
+
+                            outputStream.write(text.getBytes());
+                            outputStream.flush();
+                            finish();
+                        } catch (IOException e) {
+                            showError(e.toString());
+                        }
+                    }
+                } else {
+                    Toast.makeText(getApplicationContext(), R.string.unsupported_mimetype, Toast.LENGTH_LONG).show();
+                    finish();
+                }
             }
         } else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
             if (intent.hasExtra(Intent.EXTRA_STREAM)) {
                 inputUris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
-                if (saveIndividually) {
+                if (saveIndividually || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
                     inputUri = inputUris.get(currentFileIndex);
                     callSaveFileResultLauncherForIndividual(inputUri, SAVE_FILES_REQUEST_CODE);
                 }
-                else callSaveFilesResultLauncherForMultipleUriDataAllAtOnce();
+                else {
+                    // I don't know a way to fix the MIME type for this.
+                    for (Uri uri : inputUris) {
+                        final String mimeType = getApplicationContext().getContentResolver().getType(uri);
+                        if (mimeType==null || mimeType.isEmpty()) {
+                            Toast.makeText(getApplicationContext(), R.string.unsupported_mimetype, Toast.LENGTH_LONG).show();
+                            finish();
+                        }
+                    }
+                    Intent saveFilesIntent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    startActivityForResult(saveFilesIntent, SAVE_FILES_REQUEST_CODE);
+                }
             }
         } else {
             setContentView(R.layout.activity_main);
@@ -95,45 +149,29 @@ public class MainActivity extends Activity {
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    private void callSaveFilesResultLauncherForMultipleUriDataAllAtOnce() {
-        // I don't know a way to fix the MIME type for this.
-        if (isSupportedMimeTypes(inputUris)) {
-            Intent saveFilesIntent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-            startActivityForResult(saveFilesIntent, SAVE_FILES_REQUEST_CODE);
-        } else {
-            Toast.makeText(getApplicationContext(), R.string.unsupported_mimetype, Toast.LENGTH_LONG).show();
-            finish();
-        }
-    }
+    private void showError(String err) {
+        AlertDialog.Builder builder = (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.HONEYCOMB) ?
+                new AlertDialog.Builder(this, android.R.style.Theme_Black) : new AlertDialog.Builder(this);
+        builder.setTitle(R.string.err);
+        builder.setMessage(err);
+        builder.setPositiveButton("OK", (dialog, which) -> dialog.dismiss());
 
-    private void showError(String error) {
         runOnUiThread(() -> {
-            TextView errorBox = findViewById(R.id.errorField);
-            errorBox.setVisibility(View.VISIBLE);
-            errorBox.setText(error);
-            Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, err, Toast.LENGTH_SHORT).show();
+            builder.create().show();
         });
-    }
-
-    private boolean isSupportedMimeTypes(ArrayList<Uri> uris) {
-        for (Uri uri : uris) {
-            String mimeType = getApplicationContext().getContentResolver().getType(uri);
-            if (mimeType==null || mimeType.length()==0) return false;
-        }
-        return true;
     }
 
     private void callSaveFileResultLauncherForIndividual(Uri inputUri, int code) {
         if (supportsBuiltInAndroidFilePicker) {
-            String mimeType;
-            try {
-                mimeType = getApplicationContext().getContentResolver().getType(inputUri);
-            } catch (NullPointerException ignored) {
-                // It seems like some apps send the file with no MIME type on older Android versions. Possibly on newer versions the MIME type gets automatically set
-                // ContentResolver will refuse to open anything with invalid MIME type and the output file will be 0 bytes unless you grant WRITE_EXTERNAL_STORAGE.
-                // I am not sure if Google Play will allowing uploading the app with it but I guess I can put this if lmj isn't uploading it on Play Store anyway
+            String mimeType = getApplicationContext().getContentResolver().getType(inputUri);
+            // It seems like some apps send the file with no MIME type on older Android versions. Possibly on newer versions the MIME type gets automatically set
+            // ContentResolver will refuse to open anything with invalid MIME type and the output file will be 0 bytes unless you grant WRITE_EXTERNAL_STORAGE.
+            // I am not sure if Google Play will allowing uploading the app with it but I guess I can put this if lmj isn't uploading it on Play Store anyway
+
+            if (mimeType==null || mimeType.isEmpty()) {
                 if(Build.VERSION.SDK_INT>22 && Build.VERSION.SDK_INT<29 && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED) {
+                    showError(getString(R.string.need_storage));
                     requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
                 }
                 String fileExtension = getOriginalFileName(this, inputUri);
@@ -141,6 +179,7 @@ public class MainActivity extends Activity {
                 mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(fileExtension.toLowerCase());
                 if (mimeType==null || mimeType.isEmpty()) mimeType = "application/octet-stream";
             }
+
             Intent saveFileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             saveFileIntent.addCategory(Intent.CATEGORY_OPENABLE);
             saveFileIntent.setType(mimeType);
@@ -157,77 +196,27 @@ public class MainActivity extends Activity {
     }
 
     private void saveFile(Uri inputUri, Uri outputUri) {
-        InputStream inputStream = null;
-        OutputStream outputStream = null;
-        try {
-            outputStream = getContentResolver().openOutputStream(outputUri);
-            if (inputUri != null) {
-                inputStream = getContentResolver().openInputStream(inputUri);
-                if (inputStream != null) {
-                    byte[] buffer = new byte[4096];
-                    int length;
-                    while ((length = inputStream.read(buffer)) > 0) {
-                        outputStream.write(buffer, 0, length);
-                    }
-                }
-            } else {
-                // If the input URI is null, write the text from the intent directly to the output stream
-                String text = getIntent().getStringExtra(Intent.EXTRA_TEXT);
-                if (text == null) {
-                    showError(getString(R.string.nothing));
-                } else {
-                    outputStream.write(text.getBytes());
+        try (OutputStream outputStream = getContentResolver().openOutputStream(outputUri);
+              InputStream inputStream = getContentResolver().openInputStream(inputUri)) {
+            if (inputStream != null) {
+                byte[] buffer = new byte[4096];
+                int length;
+                while ((length = inputStream.read(buffer)) > 0) {
+                    outputStream.write(buffer, 0, length);
                 }
             }
-            outputStream.flush();
         } catch (Exception e) {
             showError(e.toString());
-        } finally {
-            try {
-                if (inputStream != null) {
-                    inputStream.close();
-                }
-                if (outputStream != null) {
-                    outputStream.close();
-                }
-            } catch (Exception e) {
-                showError(e.toString());
-            }
-        }
-    }
-
-    private void callSaveFileResultLauncherForPlainTextData(String text) {
-        if (text != null) {
-            String fileName = slugify(text.substring(0, Math.min(text.length(), 20))) + ".txt";
-            if(supportsBuiltInAndroidFilePicker) {
-                Intent saveFileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-                saveFileIntent.addCategory(Intent.CATEGORY_OPENABLE);
-                saveFileIntent.setType("text/plain");
-                saveFileIntent.putExtra(Intent.EXTRA_TITLE, fileName);
-                startActivityForResult(saveFileIntent, SAVE_FILE_REQUEST_CODE);
-            } else {
-                // just write it here
-                try (OutputStream outputStream = new FileOutputStream(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + fileName)){
-                    outputStream.write(text.getBytes());
-                    outputStream.flush();
-                    finish();
-                } catch (IOException e) {
-                    showError(e.toString());
-                }
-            }
-        } else {
-            Toast.makeText(getApplicationContext(), R.string.unsupported_mimetype, Toast.LENGTH_LONG).show();
-            finish();
         }
     }
     
-    private String getOriginalFileName(Context context, Uri uri) {
+    private static String getOriginalFileName(Context context, Uri uri) {
         String result = null;
         try {
             if (uri.getScheme().equals("content")) {
                 try (Cursor cursor = context.getContentResolver().query(uri, null, null, null, null)) {
                     if (cursor != null && cursor.moveToFirst()) {
-                        result = cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+                        result = cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME));
                     }
                 }
             }
@@ -238,31 +227,10 @@ public class MainActivity extends Activity {
                     result = result.substring(cut + 1);
                 }
             }
-        } catch (NullPointerException ignored) {
+        } catch (Exception ignored) {
             result = "filename_not_found";
         }
         return result;
-    }
-
-    private static String slugify(String word) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
-            return Normalizer.normalize(word, Normalizer.Form.NFD)
-                    .replaceAll("[^\\p{ASCII}]", "")
-                    .replaceAll("[^a-zA-Z0-9\\s]+", "").trim()
-                    .replaceAll("\\s+", "-")
-                    .toLowerCase();
-        } else {
-            StringBuilder sb = new StringBuilder();
-            for (char c : word.toCharArray()) {
-                if ((int) c <= 127) {
-                    sb.append(c);
-                }
-            }
-            return sb.toString().replaceAll("[^a-zA-Z0-9\\s]", "")
-                    .trim()
-                    .replaceAll("\\s+", "-")
-                    .toLowerCase();
-        }
     }
 
     @Override
@@ -307,10 +275,10 @@ public class MainActivity extends Activity {
 
     @TargetApi(Build.VERSION_CODES.CUPCAKE)
     private static class SaveFileTask extends AsyncTask<Uri, Void, Void> {
-        private final WeakReference<MainActivity> activityReference;
+        private static WeakReference<MainActivity> activityReference;
 
         public SaveFileTask(MainActivity context) {
-            this.activityReference = new WeakReference<>(context);
+            activityReference = new WeakReference<>(context);
         }
 
         @Override
@@ -320,10 +288,10 @@ public class MainActivity extends Activity {
 
             if (saveIndividually || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
                 activity.saveFile(uris[0], uris[1]);
-                if (activity.inputUris != null && activity.currentFileIndex < activity.inputUris.size() - 1) {
-                    activity.currentFileIndex++;
-                    activity.inputUri = activity.inputUris.get(activity.currentFileIndex);
-                    activity.callSaveFileResultLauncherForIndividual(activity.inputUri, SAVE_FILES_REQUEST_CODE);
+                if (inputUris != null && currentFileIndex < inputUris.size() - 1) {
+                    currentFileIndex++;
+                    inputUri = inputUris.get(currentFileIndex);
+                    activity.callSaveFileResultLauncherForIndividual(inputUri, SAVE_FILES_REQUEST_CODE);
                 }
             } else {
                 final Uri treeUri = uris[1];
@@ -331,8 +299,8 @@ public class MainActivity extends Activity {
                     ContentResolver resolver = activity.getContentResolver();
                     try {
                         Uri docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri));
-                        for (Uri inputUri : activity.inputUris) {
-                            String fromUriFileName = activity.getOriginalFileName(activity, inputUri);
+                        for (Uri inputUri : inputUris) {
+                            String fromUriFileName = getOriginalFileName(activity, inputUri);
                             Uri fileUri = DocumentsContract.createDocument(resolver, docUri, "*/*", fromUriFileName);
                             try (InputStream inputStream = resolver.openInputStream(inputUri);
                                  OutputStream outputStream = resolver.openOutputStream(fileUri)) {
