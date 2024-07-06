@@ -160,7 +160,7 @@ public class MainActivity extends Activity {
             builder.create().show();
         });
     }
-
+    @TargetApi(19)
     private void callSaveFileResultLauncherForIndividual(int code) {
         if (supportsBuiltInAndroidFilePicker) {
             String mimeType = getApplicationContext().getContentResolver().getType(inputUri);
@@ -208,13 +208,13 @@ public class MainActivity extends Activity {
                             outputStream.write(buffer, 0, length);
                         }
                     }
-                } 
+                }
             }
         } catch (Exception e) {
             showError(e.toString());
         }
     }
-    
+
     private static String getOriginalFileName(Context context, Uri uri) {
         String result = null;
         try {
@@ -232,7 +232,7 @@ public class MainActivity extends Activity {
                     result = result.substring(cut + 1);
                 }
             }
-        } catch (NullPointerException ignored) {
+        } catch (Exception ignored) {
             result = "filename_not_found";
         }
         return result;
@@ -243,6 +243,7 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         new SaveFileTask(this).execute(inputUri, data.getData());
+        finish();
     }
 
     @Override
@@ -272,24 +273,22 @@ public class MainActivity extends Activity {
                 }
             } else {
                 final Uri treeUri = uris[1];
-                if (treeUri != null) {
-                    ContentResolver resolver = activity.getContentResolver();
-                    try {
-                        Uri docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri));
-                        for (Uri inputUri : inputUris) {
-                            Uri fileUri = DocumentsContract.createDocument(resolver, docUri, "*/*", getOriginalFileName(activity, inputUri));
-                            try (InputStream inputStream = resolver.openInputStream(inputUri);
-                                 OutputStream outputStream = resolver.openOutputStream(fileUri)) {
-                                byte[] buffer = new byte[4096];
-                                int length;
-                                while ((length = inputStream.read(buffer)) > 0) {
-                                    outputStream.write(buffer, 0, length);
-                                }
+                ContentResolver resolver = activity.getContentResolver();
+                try {
+                    Uri docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri));
+                    for (Uri inputUri : inputUris) {
+                        Uri fileUri = DocumentsContract.createDocument(resolver, docUri, "*/*", getOriginalFileName(activity, inputUri));
+                        try (InputStream inputStream = resolver.openInputStream(inputUri);
+                             OutputStream outputStream = resolver.openOutputStream(fileUri)) {
+                            byte[] buffer = new byte[4096];
+                            int length;
+                            while ((length = inputStream.read(buffer)) > 0) {
+                                outputStream.write(buffer, 0, length);
                             }
                         }
-                    } catch (Exception e) {
-                        activity.showError(e.toString());
                     }
+                } catch (Exception e) {
+                    activity.showError(e.toString());
                 }
             }
             return null;
