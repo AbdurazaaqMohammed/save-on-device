@@ -3,15 +3,14 @@ plugins {
 }
 
 android {
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "name.lmj001.savetodevice"
         minSdk 1
-        targetSdk 34
-        versionCode 6
-        versionName "0.6.0"
-
+        targetSdk 35
+        versionCode 7
+        versionName "0.7.0"
     }
 
     buildTypes {
@@ -24,6 +23,7 @@ android {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
+    namespace 'name.lmj001.saveondevice'
 }
 
 dependencies {
