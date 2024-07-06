@@ -32,6 +32,7 @@ import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Objects;
 
 /** @noinspection deprecation*/
 public class MainActivity extends Activity {
@@ -42,6 +43,7 @@ public class MainActivity extends Activity {
     private static int currentFileIndex = 0;
     private static boolean saveIndividually;
     private final static boolean supportsBuiltInAndroidFilePicker = Build.VERSION.SDK_INT>18;
+    private final static boolean supportsAsyncTask = Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,17 +62,17 @@ public class MainActivity extends Activity {
             } else if (intent.hasExtra(Intent.EXTRA_TEXT)) {
                 String text = intent.getStringExtra(Intent.EXTRA_TEXT);
                 if (text != null) {
-                    String fileName;
-                    String word = text.substring(0, Math.min(text.length(), 20));
+                    String fileName = text.substring(0, Math.min(text.length(), 20));
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
-                        fileName = Normalizer.normalize(word, Normalizer.Form.NFD)
+                        fileName = Normalizer.normalize(fileName, Normalizer.Form.NFD)
                                 .replaceAll("[^\\p{ASCII}]", "")
-                                .replaceAll("[^a-zA-Z0-9\\s]+", "").trim()
+                                .replaceAll("[^a-zA-Z0-9\\s]+", "")
+                                .trim()
                                 .replaceAll("\\s+", "-")
                                 .toLowerCase();
                     } else {
                         StringBuilder sb = new StringBuilder();
-                        for (char c : word.toCharArray()) {
+                        for (char c : fileName.toCharArray()) {
                             if ((int) c <= 127) {
                                 sb.append(c);
                             }
@@ -98,7 +100,7 @@ public class MainActivity extends Activity {
                         }
                     }
                 } else {
-                    Toast.makeText(getApplicationContext(), R.string.unsupported_mimetype, Toast.LENGTH_LONG).show();
+                    Toast.makeText(getApplicationContext(), R.string.nothing, Toast.LENGTH_LONG).show();
                     finish();
                 }
             }
@@ -132,14 +134,22 @@ public class MainActivity extends Activity {
                     findViewById(R.id.oldAndroidInfo).setVisibility(View.VISIBLE);
                 } else {
                     findViewById(R.id.veryOldAndroidInfo).setVisibility(View.VISIBLE);
+                    tb.setVisibility(View.INVISIBLE);
+                    findViewById(R.id.multiSaveInfo).setVisibility(View.INVISIBLE);
+                    findViewById(R.id.multiSaveLabel).setVisibility(View.INVISIBLE);
                     EditText outputDirectoryField = findViewById(R.id.directorySaveFiles);
                     outputDirectoryField.setVisibility(View.VISIBLE);
                     outputDirectoryField.setText(settings.getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download"));
                     Button b = findViewById(R.id.saveDirectorySetting);
                     b.setVisibility(View.VISIBLE);
-                    b.setOnClickListener(v -> {SharedPreferences.Editor editor = settings.edit();
-                        editor.putString("directoryToSaveFiles", outputDirectoryField.getText().toString());
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) editor.apply(); else editor.commit();
+                    b.setOnClickListener(v -> {
+                        final SharedPreferences.Editor editor = settings.edit();
+                        final String userFilePath = outputDirectoryField.getText().toString();
+                        final File newFile = new File(userFilePath);
+                        if (newFile.exists() || newFile.mkdir()) {
+                            editor.putString("directoryToSaveFiles", userFilePath);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) editor.apply(); else editor.commit();
+                        } else showError(getString(R.string.invalid_filepath));
                     });
                 }
             } else {
@@ -187,7 +197,7 @@ public class MainActivity extends Activity {
             startActivityForResult(saveFileIntent, code);
         } else {
             Uri outputUri = Uri.fromFile(new File(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + getOriginalFileName(this, inputUri)));
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE) {
+            if (supportsAsyncTask) {
                 new SaveFileTask(this).execute(inputUri, outputUri);
             } else {
                 saveFile(inputUri, outputUri);
@@ -213,7 +223,7 @@ public class MainActivity extends Activity {
     private static String getOriginalFileName(Context context, Uri uri) {
         String result = null;
         try {
-            if (uri.getScheme().equals("content")) {
+            if (Objects.equals(uri.getScheme(), "content")) {
                 try (Cursor cursor = context.getContentResolver().query(uri, null, null, null, null)) {
                     if (cursor != null && cursor.moveToFirst()) {
                         result = cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME));
@@ -233,38 +243,11 @@ public class MainActivity extends Activity {
         return result;
     }
 
+    @TargetApi(19)
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode == RESULT_OK && data != null) {
-            Uri outputUri = data.getData();
-            if (outputUri != null) {
-                switch (requestCode) {
-                    case SAVE_FILE_REQUEST_CODE:
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE) {
-                            new SaveFileTask(this).execute(inputUri, outputUri);
-                        } else {
-                            saveFile(inputUri, outputUri);
-                        }
-                        finish();
-                        break;
-                    case SAVE_FILES_REQUEST_CODE:
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE) {
-                            new SaveFileTask(this).execute(inputUri, outputUri);
-                        } else {
-                            saveFile(inputUri, outputUri);
-                            if (inputUris != null && currentFileIndex < inputUris.size() - 1) {
-                                currentFileIndex++;
-                                inputUri = inputUris.get(currentFileIndex);
-                                callSaveFileResultLauncherForIndividual(inputUri, SAVE_FILES_REQUEST_CODE);
-                            } else {
-                                finish();
-                            }
-                        }
-                        break;
-                }
-            }
-        }
+        new SaveFileTask(this).execute(inputUri, data.getData());
     }
 
     @Override
@@ -284,7 +267,6 @@ public class MainActivity extends Activity {
         @Override
         protected Void doInBackground(Uri... uris) {
             MainActivity activity = activityReference.get();
-            if (activity == null) return null;
 
             if (saveIndividually || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
                 activity.saveFile(uris[0], uris[1]);
@@ -300,8 +282,7 @@ public class MainActivity extends Activity {
                     try {
                         Uri docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri));
                         for (Uri inputUri : inputUris) {
-                            String fromUriFileName = getOriginalFileName(activity, inputUri);
-                            Uri fileUri = DocumentsContract.createDocument(resolver, docUri, "*/*", fromUriFileName);
+                            Uri fileUri = DocumentsContract.createDocument(resolver, docUri, "*/*", getOriginalFileName(activity, inputUri));
                             try (InputStream inputStream = resolver.openInputStream(inputUri);
                                  OutputStream outputStream = resolver.openOutputStream(fileUri)) {
                                 byte[] buffer = new byte[4096];
