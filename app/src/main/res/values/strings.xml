@@ -12,4 +12,5 @@
     <string name="nothing">Nothing detected to save</string>
     <string name="need_storage">Storage permission needed because the MIME type of the file could not be found</string>
     <string name="err">Error</string>
+    <string name="invalid_filepath">Invalid file path</string>
 </resources>
