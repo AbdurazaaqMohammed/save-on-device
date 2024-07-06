@@ -18,6 +18,7 @@
             </intent-filter>
             <intent-filter android:label="@string/app_intent_filter_description">
                 <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.VIEW" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
 
