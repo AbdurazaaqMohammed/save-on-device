@@ -8,7 +8,7 @@ an Android app that allows you to save files on your device from other apps usin
 - Save files from other apps to local storage
 - Save copied text to local storage
 
-This fork of the [original](https://github.com/lmj0011/save-on-device) is only 36KB and is compatible with all versions of Android.
+This fork of the [original](https://github.com/lmj0011/save-on-device) is just about 25KB and is compatible with all versions of Android.
 
 ## License
 
