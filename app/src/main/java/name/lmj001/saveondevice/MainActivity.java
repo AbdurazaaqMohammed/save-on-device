@@ -1,7 +1,6 @@
 package name.lmj001.saveondevice;
 
 import android.Manifest;
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.ContentResolver;
@@ -10,12 +9,15 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.FileUtils;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.text.TextUtils;
 import android.view.View;
 import android.webkit.MimeTypeMap;
 import android.widget.Button;
@@ -26,15 +28,13 @@ import android.widget.Toast;
 import android.widget.ToggleButton;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Objects;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.FutureTask;
 
 public class MainActivity extends Activity {
     private static Uri inputUri;
@@ -48,9 +48,9 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         SharedPreferences settings = getSharedPreferences("set", Context.MODE_PRIVATE);
-        saveIndividually = settings.getBoolean("saveIndividually", true);
+        saveIndividually = settings.getBoolean("saveIndividually",  false);
         final View protectEyes = new View(this);
-        protectEyes.setBackgroundColor(0xff000000);
+        protectEyes.setBackgroundColor(Color.BLACK);
         setContentView(protectEyes);
 
         Intent intent = getIntent();
@@ -75,12 +75,9 @@ public class MainActivity extends Activity {
                                 .toLowerCase();
                     } else {
                         StringBuilder sb = new StringBuilder();
-                        for (char c : fileName.toCharArray()) {
-                            if ((int) c <= 127) {
-                                sb.append(c);
-                            }
-                        }
-                        fileName = sb.toString().replaceAll("[^a-zA-Z0-9\\s]", "")
+                        for (char c : fileName.toCharArray()) if ((int) c <= 127) sb.append(c);
+                        fileName = sb.toString()
+                                .replaceAll("[^a-zA-Z0-9\\s]", "")
                                 .trim()
                                 .replaceAll("\\s+", "-")
                                 .toLowerCase();
@@ -91,9 +88,10 @@ public class MainActivity extends Activity {
                         saveFileIntent.setType("text/plain");
                         saveFileIntent.putExtra(Intent.EXTRA_TITLE, fileName);
                         startActivityForResult(saveFileIntent, 0);
-                    } else {
-                        saveFile(Uri.fromFile(new File(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + File.separator + fileName)));
-                    }
+                    } else saveFile(new File(
+                            getSharedPreferences("set", Context.MODE_PRIVATE)
+                                    .getString("directoryToSaveFiles",
+                                            new File(Environment.getExternalStorageDirectory(), "Download").getPath()), fileName));
                 } else {
                     Toast.makeText(getApplicationContext(), R.string.nothing, Toast.LENGTH_LONG).show();
                     finish();
@@ -109,7 +107,7 @@ public class MainActivity extends Activity {
                 } else {
                     for (Uri uri : inputUris) {
                         final String mimeType = getApplicationContext().getContentResolver().getType(uri);
-                        if (mimeType == null || mimeType.isEmpty()) {
+                        if (TextUtils.isEmpty(mimeType)) {
                             Toast.makeText(getApplicationContext(), R.string.unsupported_mimetype, Toast.LENGTH_LONG).show();
                             finish();
                         }
@@ -130,7 +128,7 @@ public class MainActivity extends Activity {
                     findViewById(R.id.veryOldAndroidInfo).setVisibility(View.VISIBLE);
                     tb.setVisibility(View.INVISIBLE);
                     findViewById(R.id.multiSaveInfo).setVisibility(View.INVISIBLE);
-                    findViewById(R.id.multiSaveLabel).setVisibility(View.INVISIBLE);
+                    findViewById(R.id.multiSaveSwitch).setVisibility(View.INVISIBLE);
                     EditText outputDirectoryField = findViewById(R.id.directorySaveFiles);
                     outputDirectoryField.setVisibility(View.VISIBLE);
                     outputDirectoryField.setText(settings.getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download"));
@@ -155,7 +153,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showError(String err) {
+    private void showError(Exception err) {
+        StringBuilder sb = new StringBuilder(err.toString());
+        for(StackTraceElement ste : err.getStackTrace()) sb.append('\n').append(ste);
+        showError(sb);
+    }
+
+    private void showError(CharSequence err) {
         runOnUiThread(() -> {
             Toast.makeText(this, err, Toast.LENGTH_SHORT).show();
             Dialog dialog = new Dialog(this, android.R.style.Theme_Black);
@@ -164,18 +168,18 @@ public class MainActivity extends Activity {
             LinearLayout layout = new LinearLayout(this);
             layout.setOrientation(LinearLayout.VERTICAL);
             layout.setPadding(16, 16, 16, 16);
-            layout.setBackgroundColor(0xff000000);
+            layout.setBackgroundColor(Color.BLACK);
 
             TextView errorMessage = new TextView(this);
             errorMessage.setText(err);
             errorMessage.setTextAppearance(this, android.R.style.TextAppearance_Large);
             layout.addView(errorMessage);
             errorMessage.setTextColor(0xFF691383);
-            errorMessage.setBackgroundColor(0xff000000);
+            errorMessage.setBackgroundColor(Color.BLACK);
 
             Button okButton = new Button(this);
             okButton.setText("OK");
-            okButton.setOnClickListener(v -> dialog.dismiss());
+            okButton.setOnClickListener(view -> finish());
             layout.addView(okButton);
 
             dialog.setContentView(layout);
@@ -183,26 +187,23 @@ public class MainActivity extends Activity {
         });
     }
 
-    @TargetApi(19)
     private void callSaveFileResultLauncherForIndividual() {
         String fileName = getOriginalFileName(this, inputUri);
         if (supportsBuiltInAndroidFilePicker) {
             String mimeType = getApplicationContext().getContentResolver().getType(inputUri);
-            if (mimeType == null || mimeType.isEmpty()) {
+            if (TextUtils.isEmpty(mimeType)) {
                 if (Build.VERSION.SDK_INT > 22 && Build.VERSION.SDK_INT < 29 && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED) {
                     showError(getString(R.string.need_storage));
                     requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
                     if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED) {
                         final File tempFile = new File(getExternalCacheDir() + File.separator + fileName);
-                        Uri outputUri = Uri.fromFile(tempFile);
-                        saveFile(outputUri);
-                        inputUri = outputUri; // lol
+                        saveFile(tempFile);
+                        inputUri = Uri.fromFile(tempFile); // lol
                     }
                 }
                 String fileExtension = fileName.substring(fileName.lastIndexOf('.') + 1).trim();
                 mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(fileExtension.toLowerCase());
-                if (mimeType == null || mimeType.isEmpty())
-                    mimeType = "application/octet-stream"; // Default MIME type
+                if (TextUtils.isEmpty(mimeType)) mimeType = "application/octet-stream"; // Default MIME type
             }
 
             Intent saveFileIntent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -210,25 +211,25 @@ public class MainActivity extends Activity {
             saveFileIntent.setType(mimeType);
             saveFileIntent.putExtra(Intent.EXTRA_TITLE, fileName);
             startActivityForResult(saveFileIntent, 0);
-        } else {
-            Uri outputUri = Uri.fromFile(new File(getSharedPreferences("set", Context.MODE_PRIVATE).getString("directoryToSaveFiles", Environment.getExternalStorageDirectory().getPath() + File.separator + "Download") + File.separator + fileName));
-            saveFile(outputUri);
-        }
+        } else saveFile(new File(
+            getSharedPreferences("set", Context.MODE_PRIVATE)
+                    .getString("directoryToSaveFiles",
+                            new File(Environment.getExternalStorageDirectory(), "Download").getPath()), fileName));
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        saveFile(data.getData());
-    }
-
-    private void saveFile(Uri outputUri) {
-        Callable<Void> saveTask = () -> {
-            if (saveIndividually || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+        Uri outputUri;
+        if (resultCode == RESULT_OK && data != null && (outputUri = data.getData()) != null)
+            Executors.newSingleThreadExecutor().submit(() -> {
+            if (requestCode == 0 || saveIndividually || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
                 try (OutputStream outputStream = getContentResolver().openOutputStream(outputUri)) {
                     if (inputUri == null) outputStream.write(sharedText.getBytes());
-                    else {
-                        try (InputStream inputStream = getContentResolver().openInputStream(inputUri)) {
+                    else try (InputStream inputStream = getContentResolver().openInputStream(inputUri)) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) inputStream.transferTo(outputStream);
+                        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) FileUtils.copy(inputStream, outputStream);
+                        else {
                             byte[] buffer = new byte[4096];
                             int length;
                             while ((length = inputStream.read(buffer)) > 0) {
@@ -237,7 +238,7 @@ public class MainActivity extends Activity {
                         }
                     }
                 } catch (Exception e) {
-                    showError(e.toString());
+                    showError(e);
                 }
                 if (inputUris == null || inputUris.isEmpty()) {
                     runOnUiThread(() -> {
@@ -253,9 +254,9 @@ public class MainActivity extends Activity {
                 ContentResolver resolver = getContentResolver();
                 try {
                     Uri docUri = DocumentsContract.buildDocumentUriUsingTree(outputUri, DocumentsContract.getTreeDocumentId(outputUri));
-                    for (Uri inputUri : inputUris) {
-                        try (InputStream inputStream = resolver.openInputStream(inputUri);
-                             OutputStream outputStream = resolver.openOutputStream(DocumentsContract.createDocument(resolver, docUri, "*/*", getOriginalFileName(this, inputUri)))) {
+                    for (Uri inputUri1 : inputUris) {
+                        try (InputStream inputStream = resolver.openInputStream(inputUri1);
+                             OutputStream outputStream = resolver.openOutputStream(DocumentsContract.createDocument(resolver, docUri, "*/*", getOriginalFileName(this, inputUri1)))) {
                             byte[] buffer = new byte[4096];
                             int length;
                             while ((length = inputStream.read(buffer)) > 0) {
@@ -268,13 +269,36 @@ public class MainActivity extends Activity {
                         finish();
                     });
                 } catch (Exception e) {
-                    showError(e.toString());
+                    showError(e);
                 }
             }
             return null;
-        };
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        executor.submit(new FutureTask<>(saveTask));
+        });
+    }
+
+    private void saveFile(File outputFile) {
+        try (OutputStream outputStream = new FileOutputStream(outputFile)) {
+            if (inputUri == null) outputStream.write(sharedText.getBytes());
+            else try (InputStream inputStream = getContentResolver().openInputStream(inputUri)) {
+                byte[] buffer = new byte[4096];
+                int length;
+                while ((length = inputStream.read(buffer)) > 0) {
+                    outputStream.write(buffer, 0, length);
+                }
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+        if (inputUris == null || inputUris.isEmpty()) {
+            runOnUiThread(() -> {
+                Toast.makeText(this, R.string.success, Toast.LENGTH_SHORT).show();
+                finish();
+            });
+        } else {
+            inputUri = inputUris.get(0);
+            inputUris.remove(0);
+            callSaveFileResultLauncherForIndividual();
+        }
     }
 
     private static String getOriginalFileName(Context context, Uri uri) {

@@ -7,7 +7,6 @@
     <string name="switchText">Save multiple files individually</string>
     <string name="very_old_android_info">Your Android version is so old that it does not support the dialog used to select where to save the file. You can enter the path to a folder in the box below, and all the files will be saved there.</string>
     <string name="directory_to_save_files">Directory to save files</string>
-    <string name="save_dir_setting">Save</string>
     <string name="success">Saved successfully</string>
     <string name="nothing">Nothing detected to save</string>
     <string name="need_storage">Storage permission needed because the MIME type of the file could not be found</string>

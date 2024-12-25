@@ -8,24 +8,24 @@ android {
     defaultConfig {
         applicationId "name.lmj001.savetodevice"
         minSdk 1
-        targetSdk 35
-        versionCode 7
-        versionName "0.7.0"
+        targetSdk 36
+        versionCode 8
+        versionName "0.7.1"
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
     namespace 'name.lmj001.saveondevice'
 }
 
 dependencies {
-    testImplementation 'junit:junit:4.+'
 }
