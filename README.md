@@ -1,6 +1,6 @@
 # <img src="./.github/readme-images/ic_launcher-playstore.png" width="48"> Save On Device
 
-an Android app that allows you to save files on your device from other apps using the share functionality.
+An Android app that allows you to save files on your device from other apps using the Share or View functionality.
 
 <img src="./.github/readme-images/demo.gif" width="250">
 
@@ -8,7 +8,7 @@ an Android app that allows you to save files on your device from other apps usin
 - Save files from other apps to local storage
 - Save copied text to local storage
 
-This fork of the [original](https://github.com/lmj0011/save-on-device) is just about 25KB and is compatible with all versions of Android.
+This fork of the [original](https://github.com/lmj0011/save-on-device) by lmj0011 is just about 25KB and is compatible with all versions of Android. It also supports saving files from the View action in addition to the Share one.
 
 ## License
 
